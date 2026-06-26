@@ -37,6 +37,8 @@
     percentBase: document.getElementById("percentBase"),
     applyPercentButton: document.getElementById("applyPercentButton"),
     resetPriceButton: document.getElementById("resetPriceButton"),
+    valueInput: document.getElementById("valueInput"),
+    applyValueButton: document.getElementById("applyValueButton"),
     copyCsvButton: document.getElementById("copyCsvButton"),
     downloadCsvButton: document.getElementById("downloadCsvButton"),
     downloadPdfButton: document.getElementById("downloadPdfButton"),
@@ -557,6 +559,22 @@
     saveState();
   }
 
+  function applyValueMarkup() {
+    var value = Number(String(elements.valueInput.value || "0").replace(/[^\d]/g, ""));
+    var base = elements.percentBase.value;
+
+    if (!Number.isFinite(value) || value === 0) return;
+
+    products.forEach(function (product) {
+      var source = base === "edited" ? product.priceEdited : product.priceOriginal;
+      product.priceEdited = Math.round((Number(source || 0) + value) / 1000) * 1000;
+      storedOverrides[productKey(product)] = product.priceEdited;
+    });
+
+    render();
+    saveState();
+  }
+
   function resetPrices() {
     products.forEach(function (product) {
       product.priceEdited = product.priceOriginal;
@@ -914,15 +932,15 @@
       hasFirstPageTop = true;
 
       var infoX = margin;
-      var topY = pageHeight - 20;
+      var topY = pageHeight - 24;
 
       if (logoImage && imageId) {
         var lw = Math.min(110, Math.max(70, logoImage.width));
         var lh = Math.round(lw * (logoImage.height / logoImage.width));
         if (lh > 60) { lh = 60; lw = Math.round(lh * (logoImage.width / logoImage.height)); }
+        text(infoX + 2, topY - lh - 6, "Service Komputer Surabaya ID", 10, { bold: true, color: "0.06 0.46 0.43" });
         image(infoX, topY - lh, lw, lh);
-        var logoBot = topY - lh - 16;
-        y = logoBot;
+        y = topY - lh - 22;
       } else {
         text(infoX, topY, "Service Komputer Surabaya ID", 13, { bold: true, color: "0.06 0.46 0.43" });
         y = topY - 28;
@@ -1178,6 +1196,7 @@
   elements.percentInput.addEventListener("change", saveState);
   elements.percentBase.addEventListener("change", saveState);
   elements.applyPercentButton.addEventListener("click", applyPercent);
+  elements.applyValueButton.addEventListener("click", applyValueMarkup);
   elements.resetPriceButton.addEventListener("click", resetPrices);
   elements.copyCsvButton.addEventListener("click", copyCsv);
   elements.downloadCsvButton.addEventListener("click", function () {
