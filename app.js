@@ -40,6 +40,7 @@
     valueInput: document.getElementById("valueInput"),
     applyValueButton: document.getElementById("applyValueButton"),
     copyCsvButton: document.getElementById("copyCsvButton"),
+    copyWaButton: document.getElementById("copyWaButton"),
     downloadCsvButton: document.getElementById("downloadCsvButton"),
     downloadPdfButton: document.getElementById("downloadPdfButton"),
     downloadHtmlButton: document.getElementById("downloadHtmlButton"),
@@ -1118,6 +1119,65 @@
     elements.parseStatus.textContent = "CSV tersalin.";
   }
 
+  function buildWaText(rows) {
+    if (!rows.length) return "";
+
+    var lines = [];
+    lines.push("*SERVICE KOMPUTER SURABAYA*");
+    lines.push(storeInfo.address);
+    lines.push(storeInfo.phone);
+    lines.push("");
+
+    rows.forEach(function (product, index) {
+      var specs = buildSpecList(product, 6);
+      var stock = product.stock === "" ? "Ready stock" : "Stock " + product.stock + " unit";
+      var price = formatCurrency(product.priceEdited || product.priceOriginal);
+
+      lines.push((index + 1) + ". *" + product.title + "*");
+      specs.forEach(function (spec) {
+        lines.push("   \u2022 " + spec);
+      });
+      lines.push("   Kategori: " + product.category);
+      lines.push("   Stock: " + stock);
+      lines.push("   Harga: " + price);
+      lines.push("");
+    });
+
+    lines.push("Info lebih lanjut: " + storeInfo.web);
+    return lines.join("\n");
+  }
+
+  function copyWa() {
+    var text = buildWaText(getVisibleProducts());
+    if (!text) {
+      elements.parseStatus.textContent = "Tidak ada data.";
+      return;
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () {
+        elements.parseStatus.textContent = "Teks WA tersalin.";
+      }).catch(function () {
+        fallbackCopy(text);
+      });
+      return;
+    }
+
+    fallbackCopy(text);
+  }
+
+  function fallbackCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+    elements.parseStatus.textContent = "Teks WA tersalin.";
+  }
+
   function saveState() {
     var payload = {
       raw: elements.rawInput.value,
@@ -1199,6 +1259,7 @@
   elements.applyValueButton.addEventListener("click", applyValueMarkup);
   elements.resetPriceButton.addEventListener("click", resetPrices);
   elements.copyCsvButton.addEventListener("click", copyCsv);
+  elements.copyWaButton.addEventListener("click", copyWa);
   elements.downloadCsvButton.addEventListener("click", function () {
     downloadText("ringkasan-laptop-" + timestamp() + ".csv", "\ufeff" + buildCsv(getVisibleProducts()), "text/csv;charset=utf-8");
   });
