@@ -33,6 +33,7 @@
     lowestPrice: document.getElementById("lowestPrice"),
     searchInput: document.getElementById("searchInput"),
     categoryFilter: document.getElementById("categoryFilter"),
+    sortSelect: document.getElementById("sortSelect"),
     percentInput: document.getElementById("percentInput"),
     percentBase: document.getElementById("percentBase"),
     applyPercentButton: document.getElementById("applyPercentButton"),
@@ -98,6 +99,10 @@
     return /^status\s*:/i.test(cleanLine(line));
   }
 
+  function isNumberedItemLine(line) {
+    return /^\d+\s*[).]\s*/.test(cleanLine(line));
+  }
+
   function isCategoryLine(line) {
     var cleaned = cleanLine(line);
     var upper = cleaned.toUpperCase();
@@ -122,6 +127,8 @@
     var cleaned = cleanLine(line)
       .replace(/^[^\w]+/, "")
       .replace(/^LAPTOP\s+/i, "")
+      .replace(/[^A-Z0-9\s&/++-]/gi, "")
+      .replace(/\s+/g, " ")
       .trim();
 
     return cleaned ? cleaned.toUpperCase() : "LAINNYA";
@@ -129,6 +136,7 @@
 
   function cleanTitle(line) {
     return cleanLine(line)
+      .replace(/^\d+\s*[).]+\s*/, "")
       .replace(/\u221a/g, "")
       .replace(/^[^\w]+/, "")
       .replace(/\s+/g, " ")
@@ -143,7 +151,7 @@
 
   function parseCurrency(value) {
     var text = cleanLine(value).toLowerCase();
-    var jutaMatch = text.match(/([0-9]+(?:[,.][0-9]+)?)\s*juta/);
+    var jutaMatch = text.match(/([0-9]+(?:[,.][0-9]+)?)\s*(?:juta|jt)\b/);
 
     if (jutaMatch) {
       return Math.round(Number(jutaMatch[1].replace(",", ".")) * 1000000);
@@ -172,7 +180,8 @@
 
   function parseStockLine(line) {
     var cleaned = cleanLine(line);
-    var match = cleaned.match(/stock\s*:?\s*([0-9]+)/i);
+    var match = cleaned.match(/stock\s*:?\s*([0-9]+)/i)
+      || cleaned.match(/\(?\s*([0-9]+)\s*(?:unit|pcs|porsi)\b/i);
     return match ? Number(match[1]) : null;
   }
 
@@ -183,12 +192,16 @@
   }
 
   function extractFields(specs) {
+    var screenLines = specs.filter(function (line) {
+      return /(layar|inch|touchscreen|fhd|oled)/i.test(line);
+    });
+
     return {
-      processor: firstMatchingLine(specs, /(processor|procesor|cpu)/i),
-      ram: firstMatchingLine(specs, /\bram\b/i),
+      processor: firstMatchingLine(specs, /(processor|procesor|cpu|\bintel\b|\bci[3579]\b|\bci[3579]?\s*gen|\bryzen\b|\bryzen[0-9]|\bceleron\b|\bpentium\b|\bathlon\b|amd\s*a[468-9]|apu)/i),
+      ram: firstMatchingLine(specs, /\b(ram|ddr[34l5]|memory)\b/i),
       storage: firstMatchingLine(specs, /\b(ssd|hdd|storage|nvme|emmc)\b/i),
-      vga: firstMatchingLine(specs, /(^\s*(double\s+)?vga\b|\bgraphics\b|\bradeon\b|\bnvidia\b|\bquadro\b|\bgeforce\b|\brtx\b|\biris\b)/i),
-      screen: firstMatchingLine(specs, /(layar|inch|touchscreen|fhd)/i)
+      vga: firstMatchingLine(specs, /(^\s*(double\s+)?vga\b|\bgraphics\b|\bradeon\b|\bnvidia\b|\bquadro\b|\bgeforce\b|\brtx\b|\biris\b|\bmx[0-9]{2,3}\b)/i),
+      screen: screenLines.join(" / ")
     };
   }
 
@@ -238,12 +251,33 @@
         return;
       }
 
-      if (hasTitleMarker(line)) {
+      if (hasTitleMarker(line) || isNumberedItemLine(line)) {
         finalizeProduct(current, list);
+        var title = cleanTitle(line);
+        var inlineSpecs = [];
+
+        var itemCategory = category;
+
+        if (isNumberedItemLine(line)) {
+          var segments = cleanLine(line)
+            .replace(/^\d+\s*[).]+\s*/, "")
+            .split("/")
+            .map(function (segment) {
+              return segment.replace(/\s+/g, " ").trim();
+            })
+            .filter(Boolean);
+
+          if (segments.length) {
+            title = segments[0];
+            inlineSpecs = segments.slice(1);
+            itemCategory = inferCategory(title);
+          }
+        }
+
         current = {
-          title: cleanTitle(line),
-          category: category,
-          specs: pendingNotes.slice(),
+          title: title,
+          category: itemCategory,
+          specs: pendingNotes.concat(inlineSpecs),
           priceOriginal: 0,
           priceText: "",
           stock: ""
@@ -253,7 +287,7 @@
       }
 
       if (!current) {
-        if (!isStatusLine(line) && !/UPDATE PRICELIST/i.test(line)) {
+        if (!isStatusLine(line) && !/pricelist|stock\s*gudang|stok\s*global|\u2b07/i.test(line)) {
           pendingNotes.push(line);
         }
         return;
@@ -267,6 +301,10 @@
       if (price !== null) {
         current.priceOriginal = price;
         current.priceText = line;
+        var stockOnLine = parseStockLine(line);
+        if (stockOnLine !== null) {
+          current.stock = stockOnLine;
+        }
         return;
       }
 
@@ -335,8 +373,9 @@
   function getVisibleProducts() {
     var keyword = elements.searchInput.value.trim().toLowerCase();
     var category = elements.categoryFilter.value;
+    var sortValue = elements.sortSelect ? elements.sortSelect.value : "default";
 
-    return products.filter(function (product) {
+    var rows = products.filter(function (product) {
       var haystack = [
         product.title,
         product.category,
@@ -350,6 +389,28 @@
 
       return (!category || product.category === category) && (!keyword || haystack.indexOf(keyword) !== -1);
     });
+
+    if (sortValue === "category" || sortValue === "category_desc") {
+      rows.sort(function (a, b) {
+        var diff = String(a.category).localeCompare(String(b.category), "id", { numeric: true });
+        if (diff === 0) {
+          diff = String(a.title).localeCompare(String(b.title), "id", { numeric: true });
+        }
+        return sortValue === "category" ? diff : -diff;
+      });
+    } else if (sortValue === "title") {
+      rows.sort(function (a, b) {
+        return String(a.title).localeCompare(String(b.title), "id", { numeric: true });
+      });
+    } else if (sortValue === "price") {
+      rows.sort(function (a, b) {
+        var pa = a.priceEdited || a.priceOriginal || 0;
+        var pb = b.priceEdited || b.priceOriginal || 0;
+        return pa - pb;
+      });
+    }
+
+    return rows;
   }
 
   function buildCsv(rows) {
@@ -1186,6 +1247,7 @@
       percentBase: elements.percentBase.value,
       search: elements.searchInput.value,
       category: elements.categoryFilter.value,
+      sort: elements.sortSelect ? elements.sortSelect.value : "default",
       activeView: activeView
     };
 
@@ -1204,6 +1266,9 @@
       elements.percentInput.value = payload.percent || "0";
       elements.percentBase.value = payload.percentBase || "original";
       elements.searchInput.value = payload.search || "";
+      if (elements.sortSelect) {
+        elements.sortSelect.value = payload.sort || "default";
+      }
       activeView = payload.activeView || "table";
     } catch (error) {
       storedOverrides = {};
@@ -1253,13 +1318,21 @@
     render();
     saveState();
   });
+  if (elements.sortSelect) {
+    elements.sortSelect.addEventListener("change", function () {
+      render();
+      saveState();
+    });
+  }
   elements.percentInput.addEventListener("change", saveState);
   elements.percentBase.addEventListener("change", saveState);
   elements.applyPercentButton.addEventListener("click", applyPercent);
   elements.applyValueButton.addEventListener("click", applyValueMarkup);
   elements.resetPriceButton.addEventListener("click", resetPrices);
   elements.copyCsvButton.addEventListener("click", copyCsv);
-  elements.copyWaButton.addEventListener("click", copyWa);
+  if (elements.copyWaButton) {
+    elements.copyWaButton.addEventListener("click", copyWa);
+  }
   elements.downloadCsvButton.addEventListener("click", function () {
     downloadText("ringkasan-laptop-" + timestamp() + ".csv", "\ufeff" + buildCsv(getVisibleProducts()), "text/csv;charset=utf-8");
   });
@@ -1288,4 +1361,11 @@
   loadState();
   parseNow();
   setActiveView(activeView);
+
+  if (typeof window !== "undefined") {
+    window.__ringkasanLaptop = {
+      parse: parseLaptopData,
+      getProducts: function () { return products; }
+    };
+  }
 })();
